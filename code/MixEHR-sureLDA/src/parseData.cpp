@@ -271,59 +271,39 @@ void MixEHR::parseTestData(JCVB0* jcvb0) {
 void MixEHR::parseTrainPrior(JCVB0* jcvb0) {
 
 	// parse patient data file
-	ifstream datafile(trainPriorFile.c_str());
+	ifstream datafile(trainDataFile.c_str());
 
-	int patID;
+	int patId,topId,freq;
+	double prob;
+
+	if(!(datafile >> patId >> topId >> prob)) {
+		throw runtime_error("Prior file empty");
+	}
 
 //	printf("patId: %d; typeId: %d; pheId: %d; stateId: %d; freq: %d\n", patId,typeId,pheId,stateId,freq);
+
 	for(vector<Patient>::iterator pat = jcvb0->trainPats->begin(); pat != jcvb0->trainPats->end(); pat++) {
 
-		datafile >> patID;
-
-		if (pat->patId != patID){
-			throw runtime_error("ID mismatch: train ID = " + to_string(pat->patId) + ", prior ID = " + to_string(patID));
+		if (pat->patId != patId){
+			throw runtime_error("ID mismatch: train ID = " + to_string(pat->patId) + ", prior ID = " + to_string(patId));
 		}
 
-		for (int j = 0; j < numOfTopics; j++){
-			datafile >> pat->prior[j] >> pat->metaphe[j];
+		while(pat->patId == patId) {
+
+			(pat->topicMap)[topId] = prob;
+			pat->Ki += 1;
+
+			if(!(datafile >> patId >> topId >> prob)) {
+				break;
+			}
+
+//			printf("patId: %d; typeId: %d; pheId: %d; stateId: %d; freq: %d\n", patId,typeId,pheId,stateId,freq);
 		}
 
-		pat->prior = numOfTopics * pat->prior / accu(pat->prior);
-		pat->metaphe_normalized = pat->metaphe / accu(pat->metaphe);
-	}
-
-	datafile.close();
-
-	printf("Prior data file parsing completed.\n");
-	cout << "--------------------" << endl;
-
-//	throw::runtime_error("parseData");
-}
-
-
-void MixEHR::parseTestPrior(JCVB0* jcvb0) {
-
-	// parse patient data file
-	ifstream datafile(testPriorFile.c_str());
-
-	int patID;
-
-//	printf("patId: %d; typeId: %d; pheId: %d; stateId: %d; freq: %d\n", patId,typeId,pheId,stateId,freq);
-
-	for(vector<Patient>::iterator pat = jcvb0->testPats->begin(); pat != jcvb0->testPats->end(); pat++) {
-		
-		datafile >> patID;
-
-		if (pat->patId != patID){
-			throw runtime_error("ID mismatch: test ID = " + to_string(pat->patId) + ", prior ID = " + to_string(patID));
-		}
-
-		for (int j = 0; j < numOfTopics; j++){
-			datafile >> pat->prior[j] >> pat->metaphe[j];
-		}
-
-		pat->prior = numOfTopics * pat->prior / accu(pat->prior);
+		pat->metaphe = randu<rowvec>(pat->Ki);
 		pat->metaphe_normalized = pat->metaphe/accu(pat->metaphe);
+
+		// printf("%.3f\n", (double)(jcvb0->trainPats->size() + jcvb0->testPats->size())/numOfPats);
 	}
 
 	datafile.close();
@@ -333,6 +313,74 @@ void MixEHR::parseTestPrior(JCVB0* jcvb0) {
 
 //	throw::runtime_error("parseData");
 }
+
+
+// void MixEHR::parseTrainPrior(JCVB0* jcvb0) {
+
+// 	// parse patient data file
+// 	ifstream datafile(trainPriorFile.c_str());
+
+// 	int patID;
+
+// //	printf("patId: %d; typeId: %d; pheId: %d; stateId: %d; freq: %d\n", patId,typeId,pheId,stateId,freq);
+// 	for(vector<Patient>::iterator pat = jcvb0->trainPats->begin(); pat != jcvb0->trainPats->end(); pat++) {
+
+// 		datafile >> patID;
+
+// 		if (pat->patId != patID){
+// 			throw runtime_error("ID mismatch: train ID = " + to_string(pat->patId) + ", prior ID = " + to_string(patID));
+// 		}
+
+
+// 		// for (int j = 0; j < numOfTopics; j++){
+// 		// 	datafile >> pat->prior[j] >> pat->metaphe[j];
+// 		// }
+
+// 		// pat->prior = numOfTopics * pat->prior / accu(pat->prior);
+// 		// pat->metaphe_normalized = pat->metaphe / accu(pat->metaphe);
+// 	}
+
+// 	datafile.close();
+
+// 	printf("Prior data file parsing completed.\n");
+// 	cout << "--------------------" << endl;
+
+// //	throw::runtime_error("parseData");
+// }
+
+
+// void MixEHR::parseTestPrior(JCVB0* jcvb0) {
+
+// 	// parse patient data file
+// 	ifstream datafile(testPriorFile.c_str());
+
+// 	int patID;
+
+// //	printf("patId: %d; typeId: %d; pheId: %d; stateId: %d; freq: %d\n", patId,typeId,pheId,stateId,freq);
+
+// 	for(vector<Patient>::iterator pat = jcvb0->testPats->begin(); pat != jcvb0->testPats->end(); pat++) {
+		
+// 		datafile >> patID;
+
+// 		if (pat->patId != patID){
+// 			throw runtime_error("ID mismatch: test ID = " + to_string(pat->patId) + ", prior ID = " + to_string(patID));
+// 		}
+
+// 		for (int j = 0; j < numOfTopics; j++){
+// 			datafile >> pat->prior[j] >> pat->metaphe[j];
+// 		}
+
+// 		pat->prior = numOfTopics * pat->prior / accu(pat->prior);
+// 		pat->metaphe_normalized = pat->metaphe/accu(pat->metaphe);
+// 	}
+
+// 	datafile.close();
+
+// 	printf("Prior data file parsing completed.\n");
+// 	cout << "--------------------" << endl;
+
+// //	throw::runtime_error("parseData");
+// }
 
 
 void MixEHR::parsePhi() {

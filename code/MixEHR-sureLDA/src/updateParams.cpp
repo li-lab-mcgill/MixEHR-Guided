@@ -20,8 +20,6 @@ void JCVB0::updatePsi() {
 
 void JCVB0::updateAlpha() {
 
-	alphaSum = accu(alpha);
-
 	// update alpha by Minka's fixed point iteration
 	rowvec alpha_numer = zeros<rowvec>(K);
 
@@ -29,9 +27,12 @@ void JCVB0::updateAlpha() {
 
 	for(vector<Patient>::iterator pat = trainPats->begin(); pat != trainPats->end(); pat++) {
 
-		for(int k=0; k<K; k++) {
+		alphaSum = 0;
 
-			alpha_numer(k) += bm::digamma(pat->metaphe(k) + alpha(k));
+		for (unordered_map<int, double>::iterator iter = pat->topicMap.begin(); iter != pat->topicMap.end(); iter++){
+			int i = std::distance(pat->topicMap.begin(), iter);
+			alpha_numer(iter->first) += bm::digamma(pat->metaphe(i) + alpha(iter->first));
+			alphaSum += alpha(iter->first);
 		}
 
 		alpha_denom += bm::digamma(accu(pat->metaphe) + alphaSum);
@@ -317,7 +318,10 @@ void JCVB0::updateMainParams() {
 
 			pair<int,int> pheId = iter->first;
 
-			pheParams[pheId]->phi += iter->second * pat->gamma[pheId];
+			for (unordered_map<int, double>::iterator iter = pat->topicMap.begin(); iter != pat->topicMap.end(); iter++){
+				int i = std::distance(pat->topicMap.begin(), iter);
+				pheParams[pheId]->phi[iter->first] += iter->second * pat->gamma[pheId][i];
+			}
 		}
 
 		// update lab params
@@ -505,42 +509,6 @@ void JCVB0::showParams() {
 
 	cout << endl << "--------------------" << endl << endl;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

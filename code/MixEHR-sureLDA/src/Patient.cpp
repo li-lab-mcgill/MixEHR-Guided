@@ -11,14 +11,15 @@ Patient::Patient(int id,
 		unordered_map<pair<int,int>, LabParams*> labParams)
 {
 	patId = id;
+	Ki = 0;
 	pheDict = pheMap;
 	labDict = labMap;
 	tarPheFrac = 0.5;
 	tarLabFrac = 0.5;
-	rowvec prior(K);
-
-	metaphe = randu<rowvec>(K);
-	metaphe_normalized = metaphe/accu(metaphe);
+	topicMap = *(new unordered_map<int, double>());
+//	rowvec prior;
+//	metaphe = randu<rowvec>(K);
+//	metaphe_normalized = metaphe/accu(metaphe);
 
 	for(unordered_map<pair<int,int>, LabParams*>::iterator iter = labParams.begin(); iter != labParams.end(); iter++) {
 
@@ -194,6 +195,16 @@ void Patient::assignTargetLabTests(bool missingLabOnly, bool observedLabOnly) {
 }
 
 
+rowvec Patient::Decompress(rowvec vec, int K){
+	rowvec target = zeros<rowvec>(K);
+	for (unordered_map<int, double>::iterator iter = topicMap.begin(); iter != topicMap.end(); iter++){
+		int i = std::distance(topicMap.begin(), iter);
+		target[iter->first] = vec[i];
+	}
+	return target;
+}
+
+
 Patient::~Patient() {
 
 	pheDict.clear();
@@ -204,41 +215,5 @@ Patient::~Patient() {
 	isTestPhe.clear();
 	isTestLab.clear();
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 

@@ -15,6 +15,7 @@ class Patient {
 public:
 
 	int patId;
+	int Ki;
 
 	bool isTestPat;
 
@@ -33,6 +34,8 @@ public:
 	unordered_map<pair<int, int>, vector<pair<int, int>>> labDict;
 
 	unordered_map<pair<int, int>, bool> obsDict;
+
+	unordered_map<int, double> topicMap;
 
 	// key: <typeId, pheId>
 	// value: 1 x K
@@ -55,6 +58,7 @@ public:
 	void assignTargetPhenotypes();
 	void assignTargetLabTests(bool missingLabOnly, bool observedLabOnly);
 	void assignTargetView(int targetViewId);
+	rowvec Decompress(rowvec vec, int K);
 
 	double tarPheFrac;
 	double tarLabFrac;

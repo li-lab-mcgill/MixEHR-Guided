@@ -600,7 +600,9 @@ void MixEHR::inferTrainPatMetaphe() {
 
 	int j = 0;
 	for(vector<Patient>::iterator pat = jcvb0->trainPats->begin(); pat != jcvb0->trainPats->end();pat++) {
-		train_pat_mix.row(j) = pat->metaphe;
+		rowvec metaphe = pat->Decompress(pat->metaphe,numOfTopics);
+		train_pat_mix.row(j) = metaphe;
+		metaphe.clear();
 		outfile_stream_train_patid << pat->patId << endl;
 		j++;
 	}
@@ -662,15 +664,17 @@ void MixEHR::inferNewPatMetaphe(JCVB0* jcvb0, bool output_to_file) {
 	if(output_to_file) {
 
 		for(vector<Patient>::iterator pat = jcvb0->testPats->begin(); pat != jcvb0->testPats->end(); pat++) {
+			rowvec metaphe = pat->Decompress(pat->metaphe,numOfTopics);
 
 			// output theta
-			outfile_stream_testPat_theta << pat->metaphe_normalized(0);
+			outfile_stream_testPat_theta << metaphe(0);
 
 			for(int k=1; k<numOfTopics; k++) {
 
-				outfile_stream_testPat_theta << "," << pat->metaphe_normalized(k);
+				outfile_stream_testPat_theta << "," << metaphe(k);
 			}
 			outfile_stream_testPat_theta << endl;
+			metaphe.clear();
 		}
 	}
 
@@ -702,6 +706,11 @@ void MixEHR::imputeNewPheData(JCVB0* jcvb0, int nearestNeighborK) {
 
 			vector<Patient>::iterator tar_pat = pat0 + j;
 
+			rowvec metaphe = tar_pat->Decompress(tar_pat->metaphe,numOfTopics);
+			rowvec metaphe_normalized = tar_pat->Decompress(tar_pat->metaphe_normalized,numOfTopics);
+
+			test_pat_mix.row(j) = metaphe;
+
 			unordered_map<pair<int,int>, int>::const_iterator hasit = tar_pat->pheDict.find(tarpheid);
 
 			double tarphe_freq = 0;
@@ -716,14 +725,14 @@ void MixEHR::imputeNewPheData(JCVB0* jcvb0, int nearestNeighborK) {
 			jcvb0->inferPatParams(tar_pat, inferPatParams_maxiter);
 
 			// save test pat mix for export
-			test_pat_mix.row(j) = tar_pat->metaphe_normalized;
+			test_pat_mix.row(j) = metaphe_normalized;
 
 			vec dist = zeros<vec>(jcvb0->trainPats->size());
 
 			// find most similar training patients based on their mixes
 			int i = 0;
 			for(vector<Patient>::iterator pat = jcvb0->trainPats->begin(); pat != jcvb0->trainPats->end(); pat++) {
-				dist(i) = accu(square(pat->metaphe_normalized - tar_pat->metaphe_normalized)); // 1 x K
+				dist(i) = accu(square(metaphe_normalized - metaphe_normalized)); // 1 x K
 				i++;
 			}
 
@@ -763,6 +772,9 @@ void MixEHR::imputeNewPheData(JCVB0* jcvb0, int nearestNeighborK) {
 			if(target_phe_true(j,t)==1) { // actual positive
 				tar_pat->pheDict[tarpheid] = tarphe_freq;
 			}
+
+			metaphe.clear();
+			metaphe_normalized.clear();
 		}
 
 		// save test patient mix matrix in csv format
@@ -820,6 +832,9 @@ void MixEHR::imputeNewLabData(JCVB0* jcvb0, int nearestNeighborK) {
 
 			vector<Patient>::iterator tar_pat = pat0 + j;
 
+			rowvec metaphe = tar_pat->Decompress(tar_pat->metaphe,numOfTopics);
+			rowvec metaphe_normalized = tar_pat->Decompress(tar_pat->metaphe_normalized,numOfTopics);
+
 			unordered_map<pair<int,int>, vector<pair<int,int>>>::const_iterator hasit = tar_pat->labDict.find(tarlabid);
 
 			vector<pair<int,int>> tarlab_res;
@@ -848,15 +863,19 @@ void MixEHR::imputeNewLabData(JCVB0* jcvb0, int nearestNeighborK) {
 			jcvb0->inferPatParams(tar_pat, inferPatParams_maxiter);
 
 			// save test pat mix for export
-			test_pat_mix.row(j) = tar_pat->metaphe_normalized;
+			test_pat_mix.row(j) = metaphe_normalized;
 
 			vec dist = zeros<vec>(jcvb0->trainPats->size());
 
 			// find most similar training patients based on their mixes
 			int i = 0;
 			for(vector<Patient>::iterator pat = jcvb0->trainPats->begin(); pat != jcvb0->trainPats->end(); pat++) {
-				dist(i) = accu(square(pat->metaphe_normalized - tar_pat->metaphe_normalized)); // 1 x K
+				rowvec metaphe_normalized_new = pat->Decompress(pat->metaphe_normalized,numOfTopics);
+
+				dist(i) = accu(square(metaphe_normalized - metaphe_normalized_new)); // 1 x K
 				i++;
+
+				metaphe_normalized_new.clear();
 			}
 
 			// pick the top K most similar training patients
@@ -934,6 +953,9 @@ void MixEHR::imputeNewLabData(JCVB0* jcvb0, int nearestNeighborK) {
 				tar_pat->labDict[tarlabid] = tarlab_res;
 				tar_pat->obsDict[tarlabid] = true;
 			}
+
+			metaphe.clear();
+			metaphe_normalized.clear();
 		}
 
 		// save test patient mix matrix in csv format
@@ -1006,7 +1028,10 @@ void MixEHR::imputeNewPatData(int nearestNeighborK) {
 
 		if(pat->patId == train_pat_id(j)) {
 
-			pat->metaphe = train_pat_mix.row(j);
+			for (unordered_map<int, double>::iterator iter = pat->topicMap.begin(); iter != pat->topicMap.end(); iter++){
+				int i = std::distance(pat->topicMap.begin(), iter);
+				pat->metaphe[i] = train_pat_mix(j,iter->first);
+			}
 			pat->metaphe_normalized = pat->metaphe/accu(pat->metaphe);
 
 		} else {
