@@ -298,6 +298,7 @@ void JCVB0::normalizeParams() {
 
 
 void JCVB0::updateMainParams() {
+	int i;
 
 	for(unordered_map<pair<int,int>, PheParams*>::iterator iter = pheParams.begin(); iter != pheParams.end(); iter++) {
 		iter->second->phi.zeros(); // 1 x K
@@ -311,6 +312,12 @@ void JCVB0::updateMainParams() {
 
 	// main update
 	for(vector<Patient>::iterator pat = trainPats->begin(); pat != trainPats->end(); pat++) {
+
+		vector<int> mapping(pat->Ki,0);
+		for (unordered_map<int, double>::iterator iter = pat->topicMap.begin(); iter != pat->topicMap.end(); iter++){
+			i = std::distance(pat->topicMap.begin(), iter);
+			mapping[i] = iter->first;
+		}
 
 		// update phe params
 		// iterate latents for ONLY the observed pat-phe
@@ -330,7 +337,7 @@ void JCVB0::updateMainParams() {
 
 			pair<int,int> labId = iter->first;
 
-//			cout << "labId: " << labId.second << endl;
+			// cout << "labId: " << labId.second << endl;
 
 			if(!pat->obsDict[labId] && !mar) { // missing lab test
 
@@ -338,9 +345,22 @@ void JCVB0::updateMainParams() {
 
 				for(int v=0; v < iter->second->V; v++) {
 
-					iter->second->eta.row(v) += pat->lambda[labId].row(v);
+					for(i=0; i<pat->Ki; i++){
 
-					iter->second->missingCnt += pat->lambda[labId].row(v);
+						iter->second->eta(v,mapping[i]) += pat->lambda[labId](v,i);
+
+						iter->second->missingCnt[mapping[i]] += pat->lambda[labId](v,i);
+					}
+
+					// cout << "updateParams line 350" << endl;
+
+					// eta_i.row(v) += pat->lambda[labId].row(v);
+
+					// cout << "updateParams line 354" << endl;
+
+					// iter->second->missingCnt += pat->lambda[labId].row(v);
+
+					// cout << "updateParams line 358" << endl;
 				}
 
 			} else { // observed lab test
@@ -349,11 +369,27 @@ void JCVB0::updateMainParams() {
 
 					int v = iter2->first;
 
-					iter->second->eta.row(v) += iter2->second * pat->lambda[labId].row(v);
+					for(i=0; i<pat->Ki; i++){
 
-					if(!mar) {
-						iter->second->observedCnt += iter2->second * pat->lambda[labId].row(v);
+						iter->second->eta(v,mapping[i]) += pat->lambda[labId](v,i);
+
+						iter->second->missingCnt[mapping[i]] += pat->lambda[labId](v,i);
+
+						if(!mar) {
+							iter->second->observedCnt[mapping[i]] += iter2->second * pat->lambda[labId](v,i);
+						}
 					}
+
+					// cout << "updateParams line 367" << endl;
+
+					// eta_i.row(v) += iter2->second * pat->lambda[labId].row(v);
+
+					// cout << "updateParams line 371" << endl;
+
+					// if(!mar) {
+					// 	iter->second->observedCnt += iter2->second * pat->lambda[labId].row(v);
+					// }
+
 				}
 			}
 		}

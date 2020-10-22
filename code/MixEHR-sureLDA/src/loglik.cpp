@@ -9,16 +9,28 @@ using namespace arma;
 // this entails not including teh qlog(q) term
 // in the original ELBO
 double JCVB0::trainLogLik() {
-
+	int i;
 	int D_train = trainPats->size();
+
+	cout << "loglik 15" << endl;
 
 	// theta elbo
 	double elbo = D_train * (lgamma(alphaSum) - accu(lgamma(alpha)));
 
+	cout << "loglik 20" << endl;
+
 	for(std::vector<Patient>::iterator patj = trainPats->begin(); patj!=trainPats->end(); patj++) {
 
-		elbo += accu(lgamma(alpha + patj->metaphe)) - lgamma(alphaSum + accu(patj->metaphe));
+		rowvec alpha_i = zeros<rowvec>(patj->Ki);
+		for (unordered_map<int, double>::iterator iter = patj->topicMap.begin(); iter != patj->topicMap.end(); iter++){
+			i = std::distance(patj->topicMap.begin(), iter);
+			alpha_i[i] = alpha[iter->first] * iter->second;
+		}
+
+		elbo += accu(lgamma(alpha_i + patj->metaphe)) - lgamma(alphaSum + accu(patj->metaphe));
 	}
+
+	cout << "loglik 27" << endl;
 
 	//	cout << "theta elbo: " << elbo << endl;
 
@@ -35,6 +47,7 @@ double JCVB0::trainLogLik() {
 		betaPrior += lgamma(betaSum[t]) - sumLogGammaBeta[t];
 	}
 
+	cout << "loglik 44" << endl;
 
 	double betaLike = 0;
 
@@ -42,6 +55,8 @@ double JCVB0::trainLogLik() {
 
 		betaLike += accu(lgamma(phePar->second->beta + phePar->second->phi));
 	}
+
+	cout << "loglik 53" << endl;
 
 	double betaNorm = 0;
 
@@ -54,6 +69,8 @@ double JCVB0::trainLogLik() {
 			betaNorm += lgamma(betaSum[t] + topicCountsPerPheType[t](k));
 		}
 	}
+
+	cout << "loglik 67" << endl;
 
 	elbo += K * betaPrior + betaLike - betaNorm;
 
@@ -68,6 +85,8 @@ double JCVB0::trainLogLik() {
 	double zetaPrior = 0;
 	double zetaLike = 0;
 	double zetaNorm = 0;
+
+	cout << "loglik 83" << endl;
 
 	for(unordered_map<pair<int,int>, LabParams*>::iterator labPar = labParams.begin(); labPar != labParams.end(); labPar++) {
 
@@ -84,6 +103,7 @@ double JCVB0::trainLogLik() {
 		}
 	}
 
+	cout << "loglik 100" << endl;
 
 	elbo += K * zetaPrior + zetaLike - zetaNorm;
 
@@ -107,6 +127,7 @@ double JCVB0::trainLogLik() {
 		elbo += psiLike;
 	}
 
+	cout << "loglik 124" << endl;
 
 	//	cout << "psi elbo: " << K * zetaPrior + zetaLike - zetaNorm << endl;
 
@@ -152,6 +173,8 @@ double JCVB0::trainLogLik() {
 		// free up the memory allocated for the patient gamma hash
 		patj->lambda.clear();
 	}
+
+	cout << "loglik 171" << endl;
 
 	elbo -= accu(logEq);
 

@@ -131,17 +131,17 @@ JCVB0::~JCVB0() {
 // Update variational parameters by JCVB0
 void JCVB0::train(bool updateHyper) {
 
-	//	cout << "E-step" << endl;
+	cout << "E-step" << endl;
 
 	// E-step
 	inferAllPatParams();
 
-	//	cout << "M-step" << endl;
+	cout << "M-step" << endl;
 
 	// M-step
 	updateMainParams();
 
-	//	cout << "EB-step" << endl;
+	cout << "EB-step" << endl;
 
 	if(updateHyper) updateHyperParams();
 }
@@ -173,9 +173,17 @@ void JCVB0::inferTestPatParams_finalRun() {
 
 // E-step
 void JCVB0::inferPatParams(vector<Patient>::iterator pat, int maxiter) {
+	int i;
+	vector<int> mapping(pat->Ki,0);
 	rowvec alpha_i = zeros<rowvec>(pat->Ki);
+	rowvec phi_i = zeros<rowvec>(pat->Ki);
+	rowvec ztot_i = zeros<rowvec>(pat->Ki);
+	rowvec missing_i = zeros<rowvec>(pat->Ki);
+	rowvec observed_i = zeros<rowvec>(pat->Ki);
+	rowvec zlabtot_i = zeros<rowvec>(pat->Ki);
 	for (unordered_map<int, double>::iterator iter = pat->topicMap.begin(); iter != pat->topicMap.end(); iter++){
-		int i = std::distance(pat->topicMap.begin(), iter);
+		i = std::distance(pat->topicMap.begin(), iter);
+		mapping[i] = iter->first;
 		alpha_i[i] = alpha[iter->first] * iter->second;
 	}
 
@@ -195,7 +203,6 @@ void JCVB0::inferPatParams(vector<Patient>::iterator pat, int maxiter) {
 
 	double diff = 1;
 	int iter = 1;
-
 	while(diff > 1e-2 && iter <= maxiter) {
 
 		rowvec patMetaphe_j_prev = pat->metaphe;
@@ -205,50 +212,31 @@ void JCVB0::inferPatParams(vector<Patient>::iterator pat, int maxiter) {
 
 			pair<int,int> pheId = patiter->first;
 
+			for(i=0;i<pat->Ki;i++){
+				phi_i[i] = pheParams[pheId]->phi[mapping[i]];
+				ztot_i[i] = topicCountsPerPheType[pheId.first][mapping[i]];				
+			}
+
 			if(!pat->isTestPhe[pheId]) {
 
 				// removing the current patient-phe token
 				rowvec pheWeight_ij = patiter->second * pat->gamma[pheId];
 
-
-
 				pat->gamma[pheId] = (pat->metaphe - pheWeight_ij + alpha_i) %
-						(pheParams[pheId]->phi - pheWeight_ij + pheParams[pheId]->beta) /
-						(topicCountsPerPheType[pheId.first] - pheWeight_ij + betaSum[pheId.first]);
+						(phi_i - pheWeight_ij + pheParams[pheId]->beta) /
+						(ztot_i - pheWeight_ij + betaSum[pheId.first]);
 
 				if(any(pat->gamma[pheId] < 0)) {
 
 					if(pat->isTestPat || svi || imp) {
 
 						pat->gamma[pheId] = (pat->metaphe + alpha_i) %
-								(pheParams[pheId]->phi + pheParams[pheId]->beta) /
-								(topicCountsPerPheType[pheId.first] + betaSum[pheId.first]);
+								(phi_i + pheParams[pheId]->beta) /
+								(ztot_i + betaSum[pheId.first]);
 
 					} else {
 
 						// DEBUG S impossible for training unless there is a bug
-						cout << "pat->patId: " << pat->patId << "; typeId: " <<
-								pheId.first << "; pheId: " << pheId.second << endl;
-
-						cout << "iter: " << iter << endl;
-
-						cout << "pat->gamma[pheId]: " << pat->gamma[pheId] << endl;
-
-						cout << "pheWeight_ij: " << pheWeight_ij << endl;
-						cout << "pat->metaphe - pheWeight_ij + alpha: " << pat->metaphe - pheWeight_ij + alpha_i << endl;
-
-
-						cout << "pheParams[pheId]->phi: " << pheParams[pheId]->phi << endl;
-						cout << "pheWeight_ij: " << pheWeight_ij << endl;
-
-						cout << "pheParams[pheId]->beta: " << pheParams[pheId]->beta << endl << endl;
-
-
-						cout << "(pheParams[pheId]->phi - pheWeight_ij + pheParams[pheId]->beta)" <<
-								(pheParams[pheId]->phi - pheWeight_ij + pheParams[pheId]->beta) << endl;
-
-						cout << "(topicCountsPerPheType[pheId.first] - pheWeight_ij + betaSum[pheId.first]): "<<
-								(topicCountsPerPheType[pheId.first] - pheWeight_ij + betaSum[pheId.first]) << endl;
 
 						throw::runtime_error("inferPatParams(): pat->gamma[pheId] has negative values for training patients");
 						// DEBUG E
@@ -267,6 +255,17 @@ void JCVB0::inferPatParams(vector<Patient>::iterator pat, int maxiter) {
 
 			int V = labParams[labId]->V;
 
+			mat eta_i = zeros<mat>(V,pat->Ki);
+			mat eta_i2 = zeros<mat>(V,pat->Ki);
+
+			for(i=0;i<pat->Ki;i++){
+				missing_i[i] = labParams[labId]->missingCnt[mapping[i]];
+				observed_i[i] = labParams[labId]->observedCnt[mapping[i]];
+				eta_i.col(i) = labParams[labId]->eta.col(mapping[i]);
+				eta_i2.col(i) = patiter->second->eta.col(mapping[i]);
+				zlabtot_i[i] = stateCountsPerLabType[labId][mapping[i]];
+			}
+
 			if(!pat->obsDict[labId] && !mar) { // true missing lab test
 
 				//				cout << "lab " << labId.second << " missing" << endl;
@@ -284,13 +283,12 @@ void JCVB0::inferPatParams(vector<Patient>::iterator pat, int maxiter) {
 					// 3 weighting factors: 1. metaphe; 2. lab value; 3. missing indicator
 					pat->lambda[labId].row(v) = (pat->metaphe - labWeight_lj + alpha_i) %
 
-							(labParams[labId]->eta.row(v) - labWeight_ljv + labParams[labId]->zeta(v)) /
-							(stateCountsPerLabType[patiter->first] - labWeight_ljv + zetaSum[labId]) %
+							(eta_i.row(v) - labWeight_ljv + labParams[labId]->zeta(v)) /
+							(zlabtot_i - labWeight_ljv + zetaSum[labId]) %
 
-							((labParams[labId]->missingCnt - labWeight_lj + labParams[labId]->b) /
-									(labParams[labId]->observedCnt + labParams[labId]->a +
-											labParams[labId]->missingCnt - labWeight_lj + labParams[labId]->b));
-
+							((missing_i - labWeight_lj + labParams[labId]->b) /
+									(observed_i + labParams[labId]->a +
+											missing_i - labWeight_lj + labParams[labId]->b));
 
 					// lab never seen before (possible for small training set or mar assumption
 					if(any(pat->lambda[labId].row(v) < 0)) {
@@ -299,12 +297,12 @@ void JCVB0::inferPatParams(vector<Patient>::iterator pat, int maxiter) {
 
 							pat->lambda[labId].row(v) = (pat->metaphe + alpha_i) %
 
-									(labParams[labId]->eta.row(v) + labParams[labId]->zeta(v)) /
-									(stateCountsPerLabType[patiter->first] + zetaSum[labId]) %
+									(eta_i.row(v) + labParams[labId]->zeta(v)) /
+									(zlabtot_i + zetaSum[labId]) %
 
-									((labParams[labId]->missingCnt + labParams[labId]->b) /
-											(labParams[labId]->observedCnt + labParams[labId]->a +
-													labParams[labId]->missingCnt + labParams[labId]->b));
+									((missing_i + labParams[labId]->b) /
+											(observed_i + labParams[labId]->a +
+													missing_i + labParams[labId]->b));
 						} else {
 
 							// DEBUG S (impossible for training unless there is a bug)
@@ -332,25 +330,25 @@ void JCVB0::inferPatParams(vector<Patient>::iterator pat, int maxiter) {
 
 					pat->lambda[labId].row(v) = (pat->metaphe - labWeight_lj + alpha_i) %
 
-							(labParams[labId]->eta.row(v) - labWeight_ljv + labParams[labId]->zeta(v)) /
-							(stateCountsPerLabType[patiter->first] - labWeight_ljv + zetaSum[labId]) %
+							(eta_i.row(v) - labWeight_ljv + labParams[labId]->zeta(v)) /
+							(zlabtot_i - labWeight_ljv + zetaSum[labId]) %
 
-							((labParams[labId]->observedCnt - labWeight_lj + labParams[labId]->a) /
-									(labParams[labId]->observedCnt + labParams[labId]->a +
-											labParams[labId]->missingCnt - labWeight_lj + labParams[labId]->b));
-
+							((observed_i - labWeight_lj + labParams[labId]->a) /
+									(observed_i + labParams[labId]->a +
+											missing_i - labWeight_lj + labParams[labId]->b));
 
 					// lab never seen before (possible for small training set or mar assumption
 					if(any(pat->lambda[labId].row(v) < 0)) {
 
 						pat->lambda[labId].row(v) = (pat->metaphe + alpha_i) %
 
-								(labParams[labId]->eta.row(v) + labParams[labId]->zeta(v)) /
-								(stateCountsPerLabType[patiter->first] + zetaSum[labId]) %
+								(eta_i.row(v) + labParams[labId]->zeta(v)) /
+								(zlabtot_i + zetaSum[labId]) %
 
-								((labParams[labId]->observedCnt + labParams[labId]->a) /
-										(labParams[labId]->observedCnt + labParams[labId]->a +
-												labParams[labId]->missingCnt + labParams[labId]->b));
+								((observed_i + labParams[labId]->a) /
+										(observed_i + labParams[labId]->a +
+												missing_i + labParams[labId]->b));
+
 					}
 				}
 			} else if(pat->obsDict[labId] && !pat->isTestLab[labId]) { // observed non-target lab test for theta inference
@@ -374,21 +372,20 @@ void JCVB0::inferPatParams(vector<Patient>::iterator pat, int maxiter) {
 
 						pat->lambda[labId].row(v) = (pat->metaphe - labWeight_lj + alpha_i) %
 
-								(patiter->second->eta.row(v) - labWeight_ljv + patiter->second->zeta(v)) /
-								(stateCountsPerLabType[patiter->first] - labWeight_ljv + zetaSum[labId]) %
+								(eta_i2.row(v) - labWeight_ljv + patiter->second->zeta(v)) /
+								(zlabtot_i - labWeight_ljv + zetaSum[labId]) %
 
-								((labParams[labId]->observedCnt - labWeight_lj + labParams[labId]->a) /
-										(labParams[labId]->observedCnt - labWeight_lj + labParams[labId]->a +
-												labParams[labId]->missingCnt + labParams[labId]->b));
+								((observed_i - labWeight_lj + labParams[labId]->a) /
+										(observed_i - labWeight_lj + labParams[labId]->a +
+												missing_i + labParams[labId]->b));
 
 					} else {
 
 						pat->lambda[labId].row(v) = (pat->metaphe - labWeight_lj + alpha_i) %
 
-								(patiter->second->eta.row(v) - labWeight_ljv + patiter->second->zeta(v)) /
-								(stateCountsPerLabType[patiter->first] - labWeight_ljv + zetaSum[labId]);
+								(eta_i2.row(v) - labWeight_ljv + patiter->second->zeta(v)) /
+								(zlabtot_i - labWeight_ljv + zetaSum[labId]);
 					}
-
 
 					// lab never seen before (possible for small training set or mar assumption
 					if(any(pat->lambda[labId].row(v) < 0)) {
@@ -399,18 +396,18 @@ void JCVB0::inferPatParams(vector<Patient>::iterator pat, int maxiter) {
 
 								pat->lambda[labId].row(v) = (pat->metaphe + alpha_i) %
 
-										(patiter->second->eta.row(v) + patiter->second->zeta(v)) /
-										(stateCountsPerLabType[patiter->first] + zetaSum[labId]) %
+										(eta_i2.row(v) + patiter->second->zeta(v)) /
+										(zlabtot_i + zetaSum[labId]) %
 
-										((labParams[labId]->observedCnt + labParams[labId]->a) /
-												(labParams[labId]->observedCnt + labParams[labId]->a +
-														labParams[labId]->missingCnt + labParams[labId]->b));
+										((observed_i + labParams[labId]->a) /
+												(observed_i + labParams[labId]->a +
+														missing_i + labParams[labId]->b));
 							} else {
 
 								pat->lambda[labId].row(v) = (pat->metaphe + alpha_i) %
 
-										(patiter->second->eta.row(v) + patiter->second->zeta(v)) /
-										(stateCountsPerLabType[patiter->first] + zetaSum[labId]);
+										(eta_i2.row(v) + patiter->second->zeta(v)) /
+										(zlabtot_i + zetaSum[labId]);
 							}
 						} else {
 
@@ -427,24 +424,24 @@ void JCVB0::inferPatParams(vector<Patient>::iterator pat, int maxiter) {
 							cout << "(pat->metaphe - labWeight_lj + alpha): " << (pat->metaphe - labWeight_lj + alpha_i) << endl;
 
 							cout << "iter->second->eta.row(v) - labWeight_ljv + iter->second->zeta(v): " <<
-									patiter->second->eta.row(v) - labWeight_ljv + patiter->second->zeta(v) << endl;
+									eta_i2.row(v) - labWeight_ljv + patiter->second->zeta(v) << endl;
 
-							cout << "stateCountsPerLabType[iter->first] - labWeight_ljv + zetaSum[labId]: " <<
-									stateCountsPerLabType[patiter->first] - labWeight_ljv + zetaSum[labId] << endl;
+							cout << "zlabtot_i - labWeight_ljv + zetaSum[labId]: " <<
+									zlabtot_i - labWeight_ljv + zetaSum[labId] << endl;
 
 
-							cout << "(labParams[labId]->observedCnt - labWeight_lj + labParams[labId]->a): " <<
-									(labParams[labId]->observedCnt - labWeight_lj + labParams[labId]->a) << endl;
+							cout << "(observed_i - labWeight_lj + labParams[labId]->a): " <<
+									(observed_i - labWeight_lj + labParams[labId]->a) << endl;
 
-							cout << "labParams[labId]->observedCnt: " << labParams[labId]->observedCnt << endl;
+							cout << "observed_i: " << observed_i << endl;
 							cout << "labWeight_lj: " << labWeight_lj << endl;
 							cout << "labParams[labId]->a: " << labParams[labId]->a << endl;
 
 
-							cout << "labParams[labId]->observedCnt - labWeight_lj + labParams[labId]->a + ..." <<
-									"labParams[labId]->missingCnt + labParams[labId]->b" << endl;
-							cout << labParams[labId]->observedCnt - labWeight_lj + labParams[labId]->a +
-									labParams[labId]->missingCnt + labParams[labId]->b << endl;
+							cout << "observed_i - labWeight_lj + labParams[labId]->a + ..." <<
+									"missing_i + labParams[labId]->b" << endl;
+							cout << observed_i - labWeight_lj + labParams[labId]->a +
+									missing_i + labParams[labId]->b << endl;
 
 
 							throw::runtime_error("inferPatParams(): pat->lambda[labId] for observed lab test has negative values");
@@ -460,7 +457,6 @@ void JCVB0::inferPatParams(vector<Patient>::iterator pat, int maxiter) {
 
 		pat->metaphe.zeros();
 
-
 		// infer patient metaphe
 		// update phe params
 		// iterate latents for ONLY the observed pat-phe
@@ -473,7 +469,6 @@ void JCVB0::inferPatParams(vector<Patient>::iterator pat, int maxiter) {
 				pat->metaphe += iter->second * pat->gamma[pheId];
 			}
 		}
-
 
 		// update lab params
 		// iterate latents for ALL pat-lab including missing lab tests
@@ -503,8 +498,6 @@ void JCVB0::inferPatParams(vector<Patient>::iterator pat, int maxiter) {
 
 		diff = accu(abs(pat->metaphe - patMetaphe_j_prev))/pat->Ki;
 
-		//		cout << "pat: " << pat->patId << " iter: " << iter << ": " << "diff: " << diff << "; pat->metaphe: " << pat->metaphe;
-
 		iter++;
 	}
 
@@ -513,37 +506,6 @@ void JCVB0::inferPatParams(vector<Patient>::iterator pat, int maxiter) {
 	pat->metaphe_normalized = alpha_i + pat->metaphe;
 	pat->metaphe_normalized = pat->metaphe_normalized/accu(pat->metaphe_normalized);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

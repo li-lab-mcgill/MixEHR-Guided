@@ -95,7 +95,6 @@ MixEHR* parseCmdLine(int argc, char *argv[]) {
 
 				prior_test = string(argv[i+1]);
 
-
 			} else if(argComp.compare("-m")== 0 || argComp.compare("--metaFile")== 0) {
 
 				metafile = string(argv[i+1]);
@@ -311,7 +310,6 @@ int main(int argc, char *argv[]) {
 		cout << "trainedModelPrefix:" << mixehr->trainedModelPrefix << endl;
 		cout << "trainDataFile: " << mixehr->trainDataFile << endl;
 
-
 		mixehr->inferTrainPatMetaphe();
 
 
@@ -331,6 +329,8 @@ int main(int argc, char *argv[]) {
 
 	} else { // train
 
+		cout << "mixehr->outputIntermediates " << mixehr->outputIntermediates << endl;
+
 		int myints[] = {mixehr->numOfIters};
 
 		std::vector<int> iter2print(myints, myints + sizeof(myints) / sizeof(int) );
@@ -340,7 +340,7 @@ int main(int argc, char *argv[]) {
 			iter2print.clear();
 			int myints2[] = {1,2,5,10,20,50,100,150,200,300,500,1000};
 			int moreiters = mixehr->numOfIters/1e3;
-			std::vector<int> iter2print2(myints2, myints2 + sizeof(myints2) / sizeof(int) );
+			std::vector<int> iter2print2(myints2, myints2 + sizeof(myints2) / sizeof(int));
 
 			for(std::vector<int>::iterator it = iter2print2.begin(); it != iter2print2.end(); it++) {
 				if(*it < mixehr->numOfIters) {
@@ -367,7 +367,15 @@ int main(int argc, char *argv[]) {
 
 			mixehr->initialize_infer();
 
+			cout << "Initialized" << endl;
+
 			mixehr->parseTrainData(infer);
+
+			cout << "Train data parsed" << endl;
+
+			mixehr->parseTrainPrior(infer);
+
+			cout << "Train prior parsed" << endl;
 
 		} else if(mixehr->inference.compare("SJCVB0")==0) {
 			// polymorphism
@@ -386,11 +394,15 @@ int main(int argc, char *argv[]) {
 
 		double trainStart = omp_get_wtime(); // @suppress("Function cannot be resolved")
 
+		cout << "main line 397" << endl;
+
 		//		cout << endl << "before training" << endl << endl;
 		//		infer->showParams();
 		//		cout << endl;
 
 		int iter = 0;
+
+		cout << "main line 405" << endl;
 
 //		cout << "exportResults" << endl;
 		if(mixehr->outputIntermediates) mixehr->exportResults(infer, iter, false);
@@ -408,18 +420,19 @@ int main(int argc, char *argv[]) {
 
 		for (iter = 1; iter < mixehr->numOfIters; iter++) {
 
-			//			cout << "train" << endl;
-
 			infer->train(true);
-			//			cout << endl << "after training at iter " << iter << endl << endl;
-			//			infer->showParams();
-			//			cout << "logTrainLik" << endl;
+			// infer->showParams();
+			cout << "main line 421" << endl;
 
 			mixehr->logTrainLik(iter) = infer->trainLogLik();
+
+			cout << "main line 425" << endl;
 
 			double trainSoFar = omp_get_wtime(); // @suppress("Function cannot be resolved")
 
 			mixehr->trainTime(iter) = (double) (trainSoFar - trainStart);
+
+			cout << "main 431" << endl;
 
 			//			mixehr->logTrainLik_breakdowns.row(iter) = infer->trainLogLik_breakdowns();
 			//			cout << "logPredLik" << endl;
@@ -486,30 +499,6 @@ int main(int argc, char *argv[]) {
 
 	return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

@@ -21,8 +21,6 @@ void MixEHR::parseMetaInfo() {
 
 	while(metafile >> typeId >> pheId >> stateNum) {
 
-//		cout << "typeId: " << typeId << "; pheId: " << pheId << "; stateNum: " << stateNum << endl;
-
 		if(oldTypeId!=typeId) { // new data type found
 
 			if(stateNum > 1) {
@@ -86,6 +84,8 @@ void MixEHR::parseMetaInfo() {
 
 				numOfPhes[typeId]++;
 			}
+
+			// cout << "New phetype added" << endl;
 		}
 		oldTypeId=typeId;
 	}
@@ -108,8 +108,6 @@ void MixEHR::parseTrainData(JCVB0* jcvb0) {
 	if(!(datafile >> patId >> typeId >> pheId >> stateId >> freq)) {
 		eof = true;
 	}
-
-//	printf("patId: %d; typeId: %d; pheId: %d; stateId: %d; freq: %d\n", patId,typeId,pheId,stateId,freq);
 
 	while(!eof) {
 
@@ -137,6 +135,7 @@ void MixEHR::parseTrainData(JCVB0* jcvb0) {
 			} else {
 
 				(*pheMap)[make_pair(typeId,pheId)] = freq;
+
 			}
 
 			if(!(datafile >> patId >> typeId >> pheId >> stateId >> freq)) {
@@ -145,7 +144,7 @@ void MixEHR::parseTrainData(JCVB0* jcvb0) {
 				break;
 			}
 
-//			printf("patId: %d; typeId: %d; pheId: %d; stateId: %d; freq: %d\n", patId,typeId,pheId,stateId,freq);
+			// printf("patId: %d; typeId: %d; pheId: %d; stateId: %d; freq: %d\n", patId,typeId,pheId,stateId,freq);
 		}
 
 		Patient* newPat = new Patient(oldPatId,
@@ -271,9 +270,9 @@ void MixEHR::parseTestData(JCVB0* jcvb0) {
 void MixEHR::parseTrainPrior(JCVB0* jcvb0) {
 
 	// parse patient data file
-	ifstream datafile(trainDataFile.c_str());
+	ifstream datafile(trainPriorFile.c_str());
 
-	int patId,topId,freq;
+	int patId,topId;
 	double prob;
 
 	if(!(datafile >> patId >> topId >> prob)) {
