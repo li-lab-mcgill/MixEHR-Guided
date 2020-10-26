@@ -394,15 +394,11 @@ int main(int argc, char *argv[]) {
 
 		double trainStart = omp_get_wtime(); // @suppress("Function cannot be resolved")
 
-		cout << "main line 397" << endl;
-
 		//		cout << endl << "before training" << endl << endl;
 		//		infer->showParams();
 		//		cout << endl;
 
 		int iter = 0;
-
-		cout << "main line 405" << endl;
 
 //		cout << "exportResults" << endl;
 		if(mixehr->outputIntermediates) mixehr->exportResults(infer, iter, false);
@@ -426,13 +422,9 @@ int main(int argc, char *argv[]) {
 
 			mixehr->logTrainLik(iter) = infer->trainLogLik();
 
-			cout << "main line 425" << endl;
-
 			double trainSoFar = omp_get_wtime(); // @suppress("Function cannot be resolved")
 
 			mixehr->trainTime(iter) = (double) (trainSoFar - trainStart);
-
-			cout << "main 431" << endl;
 
 			//			mixehr->logTrainLik_breakdowns.row(iter) = infer->trainLogLik_breakdowns();
 			//			cout << "logPredLik" << endl;
