@@ -19,7 +19,7 @@ make
 
 See scripts [mixmimic.sh](mixmimic.sh) for training on MIMIC data
 
-We included the MIMIC-III data. To run mixehr-surelda, you will need a meta data file that contains 3 columns: 
+We included the MIMIC-III data. To run mixehr-surelda, you will need a metadata file that contains 3 columns: 
 
 1. typeId: indicates distinct data types such as ICD-9, lab test, etc with 1, 2, etc
 2. pheId: indicate the phenotype ID (e.g., lab test 1, lab test 2, etc)
@@ -43,7 +43,7 @@ Finally, you will need a prior file that contains 3 columns:
 2. topId: indicates the meta-phenotype topic ID (indexed at 0 and no greater than nTopics-1)
 3. priorProb: prior probability of meta-phenotype for patient (must be >0 and <=1)
 
-Note that any patient-topic combos not in this file will be assumed to = 0, so only nonzero entries should be included. See the following MIMIC example prior generated using PheCodes up to 1 decimal point in the hierarchy: [mixmimic/MIMIC_prior_phecodes1d.txt] (mixmimic/MIMIC_prior_phecodes1d.txt).
+Note that any patient-topic combos not in this file will be assumed to = 0, so only nonzero entries should be included. Prior probabilities can be inferred using a clustering technique such as MAP or PheNorm, or simply set to I(ICD > 0). See the following MIMIC example prior generated using PheCodes up to 1 decimal point in the hierarchy: [mixmimic/MIMIC_prior_phecodes1d.txt] (mixmimic/MIMIC_prior_phecodes1d.txt).
 
 
 ## Training and validation
