@@ -1,0 +1,176 @@
+---
+title: "Generate MAP prior for mixEHR-sureLDA"
+author: "Yuri Ahuja"
+date: "1/10/2021"
+output: html_document
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(foreach)
+library(doParallel)
+library(MAP)
+library(foreach)
+library(dplyr)
+library(doParallel)
+
+icds_list <- get(load('icd9_list.RData'))
+phecode_icd_mappings <- read.csv('phecode_icd9_mappings.csv',row.names=NULL)
+uniqueCases <- read.table('combinedData_sample.txt',sep=' ')
+colnames(uniqueCases) <- c('patId','typeId','pheId','stateId','freq')
+phecodes <- sort(unique(phecode_icd_mappings$phecode))
+pheCode_dat <- uniqueCases[uniqueCases$typeId==1,]
+```
+
+## R Markdown
+
+This example script utilizes three pre-generated/pre-processed files: 1) a list of all ICD-9 codes in our dataset (icds_list), 2) many-to-many mappings of PheCodes to ICD-9 codes (phecode_icd_mappings), as generated from the PheCode dictionary (available online), and 3) the feature data used to train mixEHR-sureLDA (uniqueCases).  The first file looks like
+
+```{r}
+head(icds_list)
+```
+
+and the second like
+
+```{r}
+head(phecode_icd_mappings)
+```
+
+Our mixEHR-sureLDA input data (uniqueCases) has been preprocessed such that [typeId=1] indicates ICD codes, [typeId=2] indicates drug codes, and [typeId=3] indicates ACTE codes. We saved ICD-9 codes (i.e. [typeId==1]) within a data frame called 'pheCode_dat' for use here. Within this set, pheId corresponds to the one-indexed index of the ICD-9 code in icds_list. (i.e. [pheId=1] -> ICD-9 001.0). Note that all ICD-9 codes are 4-digit, including 1 post-decimal digit (XXX.Y). 3-digit (integer) codes are given a post-decimal digit of 0 (i.e. 001 -> 001.0), and 5-digit codes are grouped to their parent 4-digit code (i.e. 053.11 -> 053.1). The processed data looks like
+
+```{r}
+head(pheCode_dat)
+```
+
+We first map the observed ICD-9 codes (typeId==1) to PheCodes, which we store in 'pheCode_dat$phecode'. Note that we map all 'E' codes to a single PheCode (i.e. 'E'), and we group 'V' codes by the first whole integer (i.e. V855 -> V8) in order to avoid using a lot of topics for the relatively uninformative phenotypes coded by 'E' and 'V' codes.
+
+```{r}
+phecodes <- sort(unique(phecode_icd_mappings$phecode))
+Es <- which(sapply(phecode_icd_mappings$icd9,function(cod){substr(cod,1,1)=='E'}))
+Vs <- which(sapply(phecode_icd_mappings$icd9,function(cod){substr(cod,1,1)=='V'}))
+ints <- setdiff(seq(nrow(phecode_icd_mappings)), intersect(Es,Vs))
+
+pheCode_dat$ICD <- icds_list[pheCode_dat$pheId]
+pheCode_dat$phecode <- sapply(1:nrow(pheCode_dat),function(i){
+  icd <- pheCode_dat$ICD[i]
+  if (substr(icd,1,1)=='E'){
+    'E'
+  }
+  else if (substr(icd,1,1)=='V'){
+    substr(icd,1,2)
+  }
+  else{
+    code <- as.character(as.numeric(paste0(substr(icd,1,3),'.',substr(icd,4,4))))
+    phecode <- phecode_icd_mappings$phecode[phecode_icd_mappings$icd9==code]
+    if (length(phecode) == 0){
+      code <- as.character(floor(as.numeric(code)))
+      phecode <- phecode_icd_mappings$phecode[phecode_icd_mappings$icd9==code]
+    }
+    phecode
+  }
+})
+```
+
+Next, we derive our healthcare utilization variable (HU) as a patient's total count of ICD codes.
+
+```{r}
+pat_HU <- pheCode_dat[,c('patId','freq')]
+HU <- pat_HU %>%
+  group_by(patId) %>%
+  transmute(Total=sum(freq))
+HU <- as.data.frame(HU[!duplicated(HU$patId),])
+rownames(HU) <- HU$patId
+```
+
+We then aggregate PheCodes by patient to compile counts of each PheCode for each patient ('pheCode_dat_summed'). Note that some ICD-9 codes map to 2 PheCodes, in which case we count both mapped PheCodes (i.e. ICD-9 code X maps to PheCodes Y and Z; incidence of X -> increment counters for both Y and Z).
+
+```{r}
+pheCode_dat <- pheCode_dat[sapply(pheCode_dat$phecode,length)!=0, c('patId','phecode','freq')]
+lens <- sapply(pheCode_dat$phecode,length)
+pheCode_dat_1cod <- pheCode_dat[lens==1,]
+pheCode_dat_2cod <- pheCode_dat[lens==2,]
+pheCode_dat_2cod <- data.frame('patId'=rep(pheCode_dat_2cod$patId,each=2),
+                               'phecode'=unlist(pheCode_dat_2cod$phecode),
+                               'freq'=rep(pheCode_dat_2cod$freq,each=2))
+pheCode_dat <- rbind(pheCode_dat_1cod,pheCode_dat_2cod)
+pheCode_dat$phecode <- unlist(pheCode_dat$phecode)
+pheCode_dat_summed <- pheCode_dat %>%
+  group_by(patId,phecode) %>%
+  transmute(Total=sum(freq))
+pheCode_dat_summed <- as.data.frame(pheCode_dat_summed[!duplicated(pheCode_dat_summed[,c('patId','phecode')]),])
+```
+
+Finally, we run MAP using our aggregate PheCode sums ('pheCode_dat_summed') and healthcare utilization feature ('HU'). This step is time-intensive so parallelization is key; adjust the number of cores based on availability.
+
+```{r, message=FALSE}
+all_phecode <- sort(unique(unlist(pheCode_dat_summed$phecode)))
+all_pats <- unique(pheCode_dat_summed$patId)
+
+logfile <- "map_prior_prediction_logfile.txt"
+nCores <- 20
+writeLines(c(""), file(logfile,'w'))
+clust <- makeCluster(nCores, outfile=logfile)
+registerDoParallel(clust)
+
+map_prior <- foreach(i=1:length(all_phecode), .combine=cbind, .packages=c('Matrix','MAP')) %dopar% {
+  message(paste('Inferring phenotype',i,'of',length(all_phecode)))
+  phe <- all_phecode[i]
+  matches <- which(pheCode_dat_summed$phecode == phe)
+  pats <- as.character(pheCode_dat_summed$patId[matches])
+  out <- rep(0,length(all_pats)); names(out) <- all_pats
+    
+  tryCatch({
+    note <- Matrix(HU[pats,'Total'], sparse=TRUE)
+    mat <- Matrix(data=pheCode_dat_summed$Total[matches], sparse=TRUE); colnames(mat) <- 'ICD'
+    res <- MAP(mat=mat, note=note)
+    out[pats] <- res$scores
+    out
+  }, error=function(e){
+    message(paste0('Error encountered on phenotype ',i,'; outputing naive prior I(ICD > 0)'))
+    out[pats] <- 1
+    out
+  })
+}
+save(map_prior,file='map_prior.RData')
+```
+
+We then reformat the MAP output as a memory-efficient table with columns [patId, pheId, probability] rather than a sparse matrix in preparation for input into mixEHR-sureLDA. Note that the set of observed pheIds must be a sequence of integers indexed at 0, not 1 as we've done so far. We output our final result to 'map_prior_compressed.txt'. We also output a 'pheId_metadata.RData' file for easy mapping of pheIds to PheCodes during analysis.
+
+```{r, warning=FALSE}
+map_prior_compressed <- as.data.frame(foreach(i=1:nrow(map_prior), .combine=rbind) %do% {
+  nonZeros <- which(map_prior[i,]>0)
+  cbind(rep(all_pats[i],length(nonZeros)), all_phecode[nonZeros], map_prior[i,nonZeros])
+})
+map_prior_compressed <- map_prior_compressed[order(map_prior_compressed[,2]),]
+map_prior_compressed <- map_prior_compressed[order(map_prior_compressed[,1]),]
+map_prior_compressed[,1] <- as.integer(map_prior_compressed[,1])
+map_prior_compressed[,2] <- as.integer(map_prior_compressed[,2])
+observed_phecodes <- intersect(sort(unique(map_prior_compressed[,2])), all_phecode)
+pheId_metadata <- data.frame('pheId'=seq(length(observed_phecodes))-1, 'phecodes'=observed_phecodes)
+save(pheId_metadata,file='pheId_metadata.RData')
+
+rownames(pheId_metadata) <- observed_phecodes
+pheIds <- pheId_metadata[as.character(map_prior_compressed[,2]),'pheId']
+map_prior_compressed[,2] <- pheIds
+
+save(map_prior_compressed, file='map_prior_compressed.RData')
+write.table(map_prior_compressed, file='map_prior_compressed.txt', sep=' ', row.names=FALSE, col.names=FALSE)
+
+uniqueCases <- uniqueCases[uniqueCases$patId %in% map_prior_compressed[,1],]
+uniqueCases <- uniqueCases[order(uniqueCases$pheId),]
+uniqueCases <- uniqueCases[order(uniqueCases$typeId),]
+uniqueCases <- uniqueCases[order(uniqueCases$patId),]
+write.table(uniqueCases,file='combinedData_sample_nonZero.txt',row.names=FALSE,col.names=FALSE)
+```
+
+We're now ready to run mixEHR-sureLDA. Using our MAP prior 'map_prior_compressed.txt', data 'combinedData_sample.txt', and metadata 'combinedMetaData_sample.txt' (see github documentation for for the format of this file), we first train the model, specifying the number of iterations of the inferential EM procedure at 200, the number of cores to use (in parallel) at 20, and the total number of unique topics/phenotypes we have (i.e. the number of unique values in the second column of 'map_prior_compressed').
+
+./mixehr -f combinedData_sample_nonZero.txt -m combinedMetaData_sample.txt -trp map_prior_compressed.txt -k 1233 -i 200 --maxcores 20 --inferenceMethod JCVB0
+
+
+The mixEHR-sureLDA training procedure outputs a file with our trained `phi_normalized` matrix as well as various other files containing trained hyperparameters ('alpha', 'beta', etc.). We use these to infer a phenotype mixture for a new set of patients (which can just be same set on which model was trained). Note that the 'trainedModelPrefix' input must be the stem of the output files from the training procedure (i.e. 'combinedData_sample_JCVB0_nmar_K1233_iter200').
+
+./mixehr -f combinedData_sample_nonZero.txt -m combinedMetaData_sample.txt -trp map_prior_compressed.txt --inferTrainPatientMetaphe --trainedModelPrefix combinedData_sample_JCVB0_nmar_K1233_iter200 --trainPatMetapheFile MTL_mixEHR_sureLDA_SES_predictions.txt —-trainPatIdFile MTL_mixEHR_sureLDA_SES_IDs.txt -k 1233 -i 500 --maxcores 20 --inferenceMethod JCVB0
+
+
+This procedure should output a very large dense matrix file containing inferred phenotype mixtures for the input patients. These can be used for downstream analyses.
